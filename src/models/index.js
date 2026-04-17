@@ -5,19 +5,38 @@ const mongoose = require('mongoose');
 const config = require('../core/config');
 const logger = require('../core/logger')('app');
 
-// Join the database connection string
-const connectionString = new URL(config.database.connection);
-connectionString.pathname += config.database.name;
+if (!config.database || !config.database.connection) {
+  logger.fatal('Database configuration is missing in core/config.js');
+  process.exit(1);
+}
 
-mongoose.connect(`${connectionString.toString()}`);
+const rawConnection = config.database.connection;
+const dbName = config.database.name;
+
+const baseUri = rawConnection.includes('.net:27017/')
+  ? `${rawConnection.split('.net:27017/')[0]}.net:27017/`
+  : rawConnection;
+
+const dbUri = baseUri.endsWith('/')
+  ? `${baseUri}${dbName}`
+  : `${baseUri}/${dbName}`;
+
+mongoose
+  .connect(dbUri, {
+    ssl: true,
+    authSource: 'admin',
+    retryWrites: true,
+    w: 'majority',
+  })
+  .then(() => {
+    logger.info(`Successfully connected to MongoDB: ${dbName}`);
+  })
+  .catch((err) => {
+    logger.error(`MongoDB connection error: ${err.message}`);
+  });
 
 const db = mongoose.connection;
-db.once('open', () => {
-  logger.info('Successfully connected to MongoDB');
-});
-
-const dbExports = {};
-dbExports.db = db;
+const dbExports = { db };
 
 const basename = path.basename(__filename);
 
